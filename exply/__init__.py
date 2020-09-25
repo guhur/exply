@@ -34,7 +34,7 @@ def read_config(folder_or_file: Union[Path, str]) -> Dict[str, Any]:
     In the latter case, the files are read in the lexicographic order based on their names.
     """
     config: Dict[str, Any] = {}
-    _folder_or_file = Path(expandvars(folder_or_file))
+    _folder_or_file = expand_path(folder_or_file)
 
     if _folder_or_file.is_file():
         return read_config_from_file(_folder_or_file)
@@ -139,7 +139,7 @@ class Exply:
         return cls(name=name, **parameters)
 
     def get_tensorboard(self, name: str = "tb"):
-        tb_path = Path(expandvars(self.output_folder / name))
+        tb_path = expand_path(self.output_folder / name)
         tb_path.mkdir(exist_ok=True)
         return SummaryWriter(log_dir=tb_path)
 
@@ -173,15 +173,15 @@ class Exply:
             self.update(best_metrics=metrics)
 
     def build_output_folder(self, folder: Union[str, Path], ignore_ext: Sequence = []):
-        folder = Path(expandvars(folder))
+        folder_path = expand_path(folder)
         ignore_exts = shutil.ignore_patterns(*ignore_ext)
 
-        if not folder.is_dir():
-            folder.mkdir(parents=True)
-            folder.chmod(0o777)  # avoid permission denied on cluster
+        if not folder_path.is_dir():
+            folder_path.mkdir(parents=True)
+            folder_path.chmod(0o777)  # avoid permission denied on cluster
 
-        if (folder / "parameters.yaml").is_file():
-            self.import_parameters(folder / "parameters.yaml")
+        if (folder_path / "parameters.yaml").is_file():
+            self.import_parameters(folder_path / "parameters.yaml")
 
     def snapshot(
         self,
@@ -273,6 +273,9 @@ class Exply:
             ret += f"\t- {k}: {v}\n"
         return ret
 
+    def __setitem__(self, name, value):
+        setattr(self, name, value)
+
     def __getitem__(self, name):
         if not hasattr(self, name):
             raise ValueError(f"The manager has not any parameter {name}")
@@ -332,14 +335,14 @@ class Exply:
         params = _clean_params(self.__dict__, exclude)
 
         if filename != "":
-            with open(expandvars(filename), "w") as outfile:
+            with open(expand_path(filename), "w") as outfile:
                 yaml.dump(params, outfile, default_flow_style=False)
 
         return params
 
     def import_parameters(self, filename):
 
-        with open(expandvars(filename), "r") as infile:
+        with open(expand_path(filename), "r") as infile:
             params = yaml.load(infile, Loader=yaml.Loader)
 
         if params is None:
@@ -351,41 +354,43 @@ class Exply:
 
         self.default_update(**params)
 
-    def load(self, model, optimizer, from_best=False, from_epoch=-1):
-        assert not (from_best and from_epoch != -1), "Specify one option"
-
-        if from_best:
-            checkpoint_path = nb.expand_path(self.best_checkpoint)
-            assert checkpoint_path.is_file(), f"{checkpoint_path} does not exist"
-        elif from_epoch != -1:
-            checkpoint_path = (
-                nb.expand_path(self.output_folder) / f"checkpoint-{from_epoch}.pth"
-            )
-            assert checkpoint_path.is_file(), f"{checkpoint_path} does not exist"
-        else:
-            checkpoint_path = nb.expand_path(self.checkpoint)
-            if not checkpoint_path.is_file():
-                logging.info(f"Could not find any checkpoint at {checkpoint_path}...")
-                return model, optimizer, {"epoch": 0}
-
-        logging.info(f"Load from checkpoint at {checkpoint_path}...")
-        checkpoint = torch.load(checkpoint_path)
-
-        pretr_dict = checkpoint["model_state_dict"]
-        model.load_state_dict(pretr_dict)
-        del checkpoint["model_state_dict"]
-
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        del checkpoint["optimizer_state_dict"]
-
-        return model, optimizer, checkpoint
-
-    def save(self, **kwargs):
-        torch.save(kwargs, nb.expand_path(self.checkpoint))
-
     def requires(self, *keys: str):
         for key in keys:
             assert hasattr(self, key), f'Requires: {", ".join(keys)}. Cant get {key}.'
+
+    def store_model(self, model: torch.nn.Module):
+        with open(expand_path(self.output_folder) / "model.txt", "w") as fid:
+            fid.write(str(model.net))
+
+    def save_model(self, model: torch.nn.Module, optimizer=None, **kwargs):
+        data = {
+            "model_state_dict": model.state_dict(),
+            **kwargs,
+        }
+        if optimizer is not None:
+            data["optimizer_state_dict"] = optimizer.state_dict()
+
+        torch.save(
+            self.output_folder / f"{self.get('name')}.pth",
+        )
+
+    def load_model(self, model: torch.nn.Module, optimizer=None):
+        filename = self.output_folder / f"{self.get('name')}.pth"
+        if not filename.is_file():
+            raise ValueError(f"Checkpoint is not found at {filename}")
+        checkpoint = torch.load(filename)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        if "epoch" in checkpoint:
+            print("Loading from epoch", checkpoint["epoch"])
+        else:
+            checkpoint["epoch"] = 0
+        if optimizer is not None:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        return checkpoint["epoch"]
+
+
+def expand_path(path: Union[str, Path]):
+    return Path(expandvars(str(path)))
 
 
 def add_metrics_tensorboard(
