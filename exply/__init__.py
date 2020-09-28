@@ -94,10 +94,7 @@ class Exply:
     """
 
     def __init__(
-        self,
-        name: str,
-        data_folder: Union[Path, str] = "",
-        **kwargs,
+        self, name: str, data_folder: Union[Path, str] = "", **kwargs,
     ):
         """
         Parameters from config file, default, args, kwargs.
@@ -360,7 +357,7 @@ class Exply:
 
     def store_model(self, model: torch.nn.Module):
         with open(expand_path(self.output_folder) / "model.txt", "w") as fid:
-            fid.write(str(model.net))
+            fid.write(str(model))
 
     def save_model(self, model: torch.nn.Module, optimizer=None, **kwargs):
         data = {
@@ -371,11 +368,11 @@ class Exply:
             data["optimizer_state_dict"] = optimizer.state_dict()
 
         torch.save(
-            self.output_folder / f"{self.get('name')}.pth",
+            data, expand_path(self.output_folder) / "checkpoint.pth",
         )
 
     def load_model(self, model: torch.nn.Module, optimizer=None):
-        filename = self.output_folder / f"{self.get('name')}.pth"
+        filename = expand_path(self.output_folder) / "checkpoint.pth"
         if not filename.is_file():
             raise ValueError(f"Checkpoint is not found at {filename}")
         checkpoint = torch.load(filename)
@@ -394,10 +391,7 @@ def expand_path(path: Union[str, Path]):
 
 
 def add_metrics_tensorboard(
-    epoch: int,
-    metrics: Dict[str, float],
-    tensorboard: SummaryWriter,
-    manager: Exply,
+    epoch: int, metrics: Dict[str, float], tensorboard: SummaryWriter, manager: Exply,
 ):
     # Sort metrics per categories
     cats: Dict[str, Dict[str, float]] = {}
