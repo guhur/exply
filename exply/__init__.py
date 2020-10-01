@@ -19,7 +19,7 @@ import torch
 try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError as e:
-    from tensorboardX import SummaryWriter
+    from tensorboardX import SummaryWriter  # type: ignore
 
 
 def recover_git_version(folder: Union[Path, str]) -> Dict[str, str]:
