@@ -348,8 +348,7 @@ class Exply:
 
         if "output_folder" in params:
             params["output_folder"] = Path(params["output_folder"])
-
-        self.default_update(**params)
+            self.default_update(**params)
 
     def requires(self, *keys: str):
         for key in keys:
@@ -360,8 +359,13 @@ class Exply:
             fid.write(str(model))
 
     def save_model(self, model: torch.nn.Module, optimizer=None, **kwargs):
+        if isinstance(model, torch.nn.DataParallel):
+            state_dict = model.module.state_dict()
+        else:
+            state_dict = model.state_dict()
+
         data = {
-            "model_state_dict": model.state_dict(),
+            "model_state_dict": state_dict,
             **kwargs,
         }
         if optimizer is not None:
@@ -376,11 +380,17 @@ class Exply:
         if not filename.is_file():
             raise ValueError(f"Checkpoint is not found at {filename}")
         checkpoint = torch.load(filename)
-        model.load_state_dict(checkpoint["model_state_dict"])
+
+        if isinstance(model, torch.nn.DataParallel):
+            model.module.load_state_dict(checkpoint["model_state_dict"])
+        else:
+            model.load_state_dict(checkpoint["model_state_dict"])
+
         if "epoch" in checkpoint:
             print("Loading from epoch", checkpoint["epoch"])
         else:
             checkpoint["epoch"] = 0
+
         if optimizer is not None:
             optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         return checkpoint["epoch"]
